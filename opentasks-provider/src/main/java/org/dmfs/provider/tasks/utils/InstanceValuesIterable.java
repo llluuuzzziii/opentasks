@@ -18,8 +18,8 @@ package org.dmfs.provider.tasks.utils;
 
 import android.content.ContentValues;
 
-import org.dmfs.iterables.elementary.Seq;
 import org.dmfs.iterators.SingletonIterator;
+import org.dmfs.jems.iterable.elementary.Seq;
 import org.dmfs.jems.iterator.decorators.Mapped;
 import org.dmfs.jems.optional.Optional;
 import org.dmfs.jems.optional.adapters.FirstPresent;
@@ -34,6 +34,7 @@ import org.dmfs.provider.tasks.processors.tasks.instancedata.DueDated;
 import org.dmfs.provider.tasks.processors.tasks.instancedata.Enduring;
 import org.dmfs.provider.tasks.processors.tasks.instancedata.Overridden;
 import org.dmfs.provider.tasks.processors.tasks.instancedata.StartDated;
+import org.dmfs.provider.tasks.processors.tasks.instancedata.TaskRelated;
 import org.dmfs.provider.tasks.processors.tasks.instancedata.VanillaInstanceData;
 import org.dmfs.rfc5545.DateTime;
 import org.dmfs.rfc5545.Duration;
@@ -49,11 +50,13 @@ import java.util.Iterator;
 // TODO: replace Single with Generator
 public final class InstanceValuesIterable implements Iterable<Single<ContentValues>>
 {
+    private final long mId;
     private final TaskAdapter mTaskAdapter;
 
 
-    public InstanceValuesIterable(TaskAdapter taskAdapter)
+    public InstanceValuesIterable(long id, TaskAdapter taskAdapter)
     {
+        mId = id;
         mTaskAdapter = taskAdapter;
     }
 
@@ -64,12 +67,11 @@ public final class InstanceValuesIterable implements Iterable<Single<ContentValu
         Optional<DateTime> start = new NullSafe<>(mTaskAdapter.valueOf(TaskAdapter.DTSTART));
         // effective due is either the actual due, start + duration or absent
         Optional<DateTime> effectiveDue = new FirstPresent<>(
-                new Seq<>(
-                        new NullSafe<>(mTaskAdapter.valueOf(TaskAdapter.DUE)),
-                        new Zipped<>(start, new NullSafe<>(mTaskAdapter.valueOf(TaskAdapter.DURATION)), DateTime::addDuration)));
+                new NullSafe<>(mTaskAdapter.valueOf(TaskAdapter.DUE)),
+                new Zipped<>(start, new NullSafe<>(mTaskAdapter.valueOf(TaskAdapter.DURATION)), DateTime::addDuration));
 
         Single<ContentValues> baseData = new Distant(mTaskAdapter.valueOf(TaskAdapter.IS_CLOSED) ? -1 : 0,
-                new Enduring(new DueDated(effectiveDue, new StartDated(start, new VanillaInstanceData()))));
+                new Enduring(new DueDated(effectiveDue, new StartDated(start, new TaskRelated(mId, new VanillaInstanceData())))));
 
         if (!mTaskAdapter.isRecurring())
         {
@@ -92,14 +94,14 @@ public final class InstanceValuesIterable implements Iterable<Single<ContentValu
             return new Mapped<>(dateTime -> new Distant(mTaskAdapter.valueOf(TaskAdapter.IS_CLOSED) ? -1 : 0,
                     new Overridden(new Present<>(dateTime),
                             new Enduring(new DueDated(new Zipped<>(new Present<>(dateTime), effectiveDuration, this::addDuration),
-                                    new StartDated(new Present<>(dateTime), new VanillaInstanceData()))))),
+                                    new StartDated(new Present<>(dateTime), new TaskRelated(mId, new VanillaInstanceData())))))),
                     new TaskInstanceIterable(mTaskAdapter).iterator());
         }
 
         // special treatment for recurring tasks without a DTSTART:
         return new Mapped<>(dateTime -> new Distant(mTaskAdapter.valueOf(TaskAdapter.IS_CLOSED) ? -1 : 0,
                 new Overridden(new Present<>(dateTime),
-                        new DueDated(new Present<>(dateTime), new VanillaInstanceData()))),
+                        new DueDated(new Present<>(dateTime), new TaskRelated(mId, new VanillaInstanceData())))),
                 new TaskInstanceIterable(mTaskAdapter).iterator());
 
     }
